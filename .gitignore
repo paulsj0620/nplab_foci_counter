@@ -1,0 +1,19 @@
+# --- Data (too large for GitHub; kept locally) ---
+dataset/
+outputs/
+
+# --- macOS / R junk ---
+.DS_Store
+.Rhistory
+.RData
+.Ruserdata
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.ipynb_checkpoints/
+*.egg-info/
+.pytest_cache/
