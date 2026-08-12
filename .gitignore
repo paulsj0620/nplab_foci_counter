@@ -1,6 +1,6 @@
 # --- Data (too large for GitHub; kept locally) ---
 dataset/
-outputs/
+results/
 
 # --- macOS / R junk ---
 .DS_Store
