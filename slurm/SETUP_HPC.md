@@ -50,16 +50,36 @@ python -c "import tensorflow as tf; print(tf.config.list_physical_devices('GPU')
 rsync -avP dataset/ <user>@<hpc>:<project>/dataset/
 ```
 
-## 3. Submit the batch
+## 3. Submit — parallel job array (recommended)
+
+Process **one slide per array task**, each on its own H100, so all slides run
+in parallel. `submit_array.sh` fills in the `--array` range automatically:
 
 ```bash
 cd <project>
-sbatch slurm/run_batch.slurm                       # all *_HE_* slides
-sbatch slurm/run_batch.slurm "dataset/*_HE_*.czi"   # or an explicit glob
+bash slurm/submit_array.sh                       # all *_HE_* slides
+bash slurm/submit_array.sh "dataset/*_HE_*.czi"   # explicit glob
+bash slurm/submit_array.sh "dataset/*.czi" 8      # cap 8 tasks at once
 ```
 
-Edit these in `slurm/run_batch.slurm` for your site: `--partition`, the
-`module load cuda ...` line, `--time`, `--mem`, `--cpus-per-task`.
+Per-task resources (edit in `slurm/run_one.slurm`): `--gres=gpu:h100:1`,
+`--cpus-per-task=16`, `--mem=64G`, `--time=00:40:00`. With enough free GPUs the
+whole set finishes in roughly the time of a single slide.
+
+When all tasks are done, build the combined workbook (fast — caches exist):
+
+```bash
+python scripts/run_batch.py "dataset/*_HE_*.czi"   # -> results/summary_all.xlsx
+```
+
+### Alternative: one job, slides in sequence
+
+```bash
+sbatch slurm/run_batch.slurm                       # all *_HE_* slides, 1 GPU, serial
+```
+
+Edit for your site in either script: `--partition`, `--time`, `--mem`,
+`--cpus-per-task`.
 
 ## 4. Monitor / results
 

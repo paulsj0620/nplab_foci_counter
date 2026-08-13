@@ -29,6 +29,11 @@ mkdir -p results/logs
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate focicnt
 
+# 2b) Make TF find the pip-installed CUDA libs (nvidia-*-cu12 packages).
+#     Without this TF prints "Cannot dlopen some GPU libraries" and falls back
+#     to CPU even on a GPU node.
+export LD_LIBRARY_PATH=$(python -c "import os,nvidia; b=os.path.dirname(nvidia.__file__); print(':'.join(os.path.join(b,d,'lib') for d in os.listdir(b) if os.path.isdir(os.path.join(b,d,'lib'))))"):${LD_LIBRARY_PATH:-}
+
 # 3) Report the GPU actually seen, into the log, before starting.
 echo "=== node: $(hostname)  job: $SLURM_JOB_ID ==="
 nvidia-smi || echo "nvidia-smi not available"

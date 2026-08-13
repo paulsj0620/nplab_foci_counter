@@ -75,6 +75,7 @@ def detect_nuclei(
     tile_rgb: np.ndarray,
     prob_thresh: float | None = None,
     nms_thresh: float | None = None,
+    n_tiles: tuple[int, int] | None = None,
 ) -> NucleiResult:
     """Detect nuclei in a full-res RGB tile.
 
@@ -95,8 +96,11 @@ def detect_nuclei(
 
     model = get_model()
     img = normalize(tile_rgb, 1, 99.8, axis=(0, 1))
+    # n_tiles lets StarDist split a large block internally (bounds GPU memory)
+    # while still issuing one batched predict call per block.
+    kw = {"n_tiles": (*n_tiles, 1)} if n_tiles else {}
     labels, details = model.predict_instances(
-        img, prob_thresh=prob_thresh, nms_thresh=nms_thresh
+        img, prob_thresh=prob_thresh, nms_thresh=nms_thresh, **kw
     )
 
     centroids = np.asarray(details["points"], dtype=float)  # (N, 2) as (y, x)
