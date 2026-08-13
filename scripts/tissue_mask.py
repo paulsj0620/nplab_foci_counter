@@ -32,7 +32,7 @@ def tissue_mask(
     sat_threshold: float = 0.08,
     max_brightness: int = 235,
     min_object_um2: float = 5000.0,
-    min_hole_um2: float = 5000.0,
+    min_hole_um2: float = 0.0,
     pixel_size_um: float | None = None,
 ) -> np.ndarray:
     """Return a boolean tissue mask (True = tissue) for an RGB slide image.
@@ -49,7 +49,9 @@ def tissue_mask(
     min_object_um2, min_hole_um2 : float
         Small blobs / holes below this physical area are removed / filled. Only
         applied when ``pixel_size_um`` is given; otherwise interpreted directly
-        as pixel counts.
+        as pixel counts. ``min_hole_um2`` defaults to 0 so tissue tears/cracks
+        stay excluded from the mask (and thus from the tissue-area denominator);
+        raise it only to fill genuine interior gaps.
     pixel_size_um : float, optional
         Physical size of one pixel in the given image (µm/px), used to convert
         the µm² cleanup thresholds to pixels. If None, thresholds are pixels.

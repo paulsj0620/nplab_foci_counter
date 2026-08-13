@@ -188,6 +188,76 @@ class CziSlide:
 
         return canvas
 
+    def read_region(
+        self, x: int, y: int, w: int, h: int, downsample: int = 1
+    ) -> np.ndarray:
+        """Read a sub-region of the slide at a given pyramid level.
+
+        Unlike ``read_level`` (which assembles the whole slide), this reads only
+        the requested box -- used to fetch individual high-res tiles for nuclei
+        detection without loading the full slide.
+
+        Parameters
+        ----------
+        x, y, w, h : int
+            Region in **full-resolution** pixel coordinates: top-left (x, y) and
+            size (w, h). The box may extend past the slide; missing area stays
+            white.
+        downsample : int
+            Pyramid level to read at (default 1 = full resolution). Must be one
+            of ``info().levels``.
+
+        Returns
+        -------
+        np.ndarray
+            (ceil(h/downsample), ceil(w/downsample), 3) uint8 RGB.
+        """
+        info = self.info()
+        if downsample not in info.levels:
+            raise ValueError(
+                f"level {downsample} not available; choose from {info.levels}"
+            )
+        d = downsample
+        out_w = int(np.ceil(w / d))
+        out_h = int(np.ceil(h / d))
+        canvas = np.full((out_h, out_w, 3), 255, dtype=np.uint8)
+
+        x_end, y_end = x + w, y + h
+        for sb in self._czi.subblocks():
+            de = sb.directory_entry
+            dims = de.dims
+            idx = {k: i for i, k in enumerate(dims)}
+            if "X" not in idx or "Y" not in idx:
+                continue
+            xi, yi = idx["X"], idx["Y"]
+            if de.stored_shape[xi] <= 0:
+                continue
+            if round(de.shape[xi] / de.stored_shape[xi]) != d:
+                continue
+
+            sx, sy = de.start[xi], de.start[yi]        # block origin (full-res)
+            bw, bh = de.shape[xi], de.shape[yi]        # block span (full-res)
+
+            # Overlap between this block and the requested region (full-res).
+            ox0, oy0 = max(x, sx), max(y, sy)
+            ox1, oy1 = min(x_end, sx + bw), min(y_end, sy + bh)
+            if ox1 <= ox0 or oy1 <= oy0:
+                continue
+
+            tile = self._to_rgb(np.asarray(sb.data()), dims)  # level-px (bh/d, bw/d, 3)
+            # Source offset inside the tile and destination offset in canvas,
+            # both in level pixels.
+            src_x, src_y = (ox0 - sx) // d, (oy0 - sy) // d
+            dst_x, dst_y = (ox0 - x) // d, (oy0 - y) // d
+            cw = min((ox1 - ox0) // d, tile.shape[1] - src_x, out_w - dst_x)
+            ch = min((oy1 - oy0) // d, tile.shape[0] - src_y, out_h - dst_y)
+            if cw <= 0 or ch <= 0:
+                continue
+            canvas[dst_y:dst_y + ch, dst_x:dst_x + cw] = \
+                tile[src_y:src_y + ch, src_x:src_x + cw]
+
+        return canvas
+
     @staticmethod
     def _to_rgb(arr: np.ndarray, dims: tuple[str, ...]) -> np.ndarray:
         """Convert a subblock array of arbitrary axis order to (H, W, 3) uint8 RGB."""

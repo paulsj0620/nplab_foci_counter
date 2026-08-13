@@ -1,0 +1,101 @@
+"""Select representative ROIs covering a target fraction of the tissue.
+
+Instead of reviewing tiny per-focus crops, we sample a handful of large,
+non-overlapping square ROIs spread across the tissue -- like a pathologist
+sampling representative fields. The ROIs together cover ~``target_coverage`` of
+the tissue, number between ``min_rois`` and ``max_rois``, sit on mostly-tissue
+areas, and (being grid cells) never overlap. Foci are then counted within them
+and FD reported over the sampled ROI tissue area.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import numpy as np
+
+
+@dataclass
+class ROI:
+    """A square review region in full-resolution pixel coordinates."""
+
+    x: int
+    y: int
+    w: int
+    h: int
+    tissue_frac: float
+
+
+def select_rois(
+    mask: np.ndarray,
+    mask_downsample: int,
+    pixel_size_um: float,
+    target_coverage: float = 0.25,
+    n_target: int = 11,
+    min_rois: int = 5,
+    max_rois: int = 20,
+    min_tissue_frac: float = 0.98,
+) -> list[ROI]:
+    """Pick non-overlapping square ROIs covering ~target_coverage of tissue.
+
+    Parameters
+    ----------
+    mask : (H, W) bool tissue mask at ``mask_downsample``.
+    pixel_size_um : full-res µm/px.
+    target_coverage : desired fraction of tissue area covered by the ROIs.
+    n_target : rough number of ROIs used to size each square.
+    min_rois, max_rois : clamp on the ROI count.
+    min_tissue_frac : a grid cell must be at least this much tissue to qualify.
+    """
+    px_level = pixel_size_um * mask_downsample
+    tissue_px = int(mask.sum())
+    tissue_area_um2 = tissue_px * (px_level ** 2)
+
+    # Size each square so that n_target of them would cover target_coverage.
+    roi_um = float(np.sqrt(target_coverage * tissue_area_um2 / max(1, n_target)))
+    step = max(1, int(roi_um / px_level))          # ROI side in mask pixels
+    H, W = mask.shape
+
+    # Candidate non-overlapping grid cells that are mostly tissue.
+    cands = []  # (tissue_px_in_cell, cy, cx, gy, gx)
+    for gy in range(0, H - step + 1, step):
+        for gx in range(0, W - step + 1, step):
+            sub = mask[gy:gy + step, gx:gx + step]
+            frac = float(sub.mean())
+            if frac >= min_tissue_frac:
+                cands.append((int(sub.sum()), gy + step // 2, gx + step // 2,
+                              gy, gx, frac))
+    if not cands:
+        return []
+
+    # Farthest-point sampling to spread ROIs out; stop at coverage or max_rois.
+    centers = np.array([(c[1], c[2]) for c in cands], dtype=float)
+    covered = 0.0
+    target_area = target_coverage * tissue_area_um2
+    chosen: list[int] = []
+    # seed with the most-tissue cell
+    nxt = int(np.argmax([c[0] for c in cands]))
+    min_d = np.full(len(cands), np.inf)
+    while len(chosen) < max_rois:
+        chosen.append(nxt)
+        covered += cands[nxt][0] * (px_level ** 2)
+        d = np.hypot(centers[:, 0] - centers[nxt, 0],
+                     centers[:, 1] - centers[nxt, 1])
+        min_d = np.minimum(min_d, d)
+        min_d[chosen] = -1
+        if covered >= target_area and len(chosen) >= min_rois:
+            break
+        if np.all(min_d < 0):
+            break
+        nxt = int(np.argmax(min_d))
+
+    rois = []
+    for i in chosen:
+        _, _, _, gy, gx, frac = cands[i]
+        rois.append(ROI(
+            x=int(gx * mask_downsample),
+            y=int(gy * mask_downsample),
+            w=int(step * mask_downsample),
+            h=int(step * mask_downsample),
+            tissue_frac=frac,
+        ))
+    return rois
