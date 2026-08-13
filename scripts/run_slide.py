@@ -208,9 +208,21 @@ def run(npz_path: str, czi_path: str) -> dict:
     piece_note = f"1 of {n_pieces} pieces" if n_pieces > 1 else "single piece"
     print(f"{stem}: {piece_note}, {len(rois)} ROIs ({coverage_pct:.0f}% cover), "
           f"{sum(foci_per_roi)} foci in ROIs, FD={fd_mm2:.3f}/mm2 -> {out}/")
-    return {"n_pieces": n_pieces, "n_rois": len(rois),
-            "foci_in_rois": int(sum(foci_per_roi)),
-            "FD_per_mm2": round(fd_mm2, 3), "out": str(out)}
+    return {
+        "slide": stem,
+        "n_tissue_pieces": n_pieces,
+        "n_nuclei": int(keep.sum()),
+        "n_inflammatory": int(fa.is_infl.sum()),
+        "n_foci_wholeslide": fa.n_foci,
+        "tissue_mm2": round(tissue_mm2, 2),
+        "n_ROIs": len(rois),
+        "ROI_coverage_pct": round(coverage_pct, 1),
+        "ROI_tissue_mm2": round(roi_tissue_mm2, 2),
+        "foci_in_ROIs": int(sum(foci_per_roi)),
+        "FD_per_mm2": round(fd_mm2, 3),
+        "FD_per_um2": fd_mm2 / 1e6,
+        "out": str(out),
+    }
 
 
 if __name__ == "__main__":
