@@ -40,7 +40,7 @@ def cluster_foci(
     infl_points_xy: np.ndarray,
     pixel_size_um: float,
     link_distance_um: float = 20.0,
-    min_cells: int = 4,
+    min_cells: int = 5,
 ) -> FociResult:
     """Cluster inflammatory nuclei into foci.
 

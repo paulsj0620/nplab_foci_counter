@@ -29,6 +29,7 @@ from tissue_mask import tissue_mask, tissue_area_mm2
 from foci_pipeline import analyze as analyze_nuclei
 from roi_select import select_rois
 from tissue_pieces import find_pieces, best_piece
+import scoring
 
 MASK_DS = 9
 GALLERY_DS = 3          # read ROI crops at this level (detail vs size)
