@@ -5,9 +5,10 @@ and labels connected components. On a point set the equivalent -- and far
 cheaper than rasterizing a 52000x29000 mask -- is **DBSCAN**: nuclei within a
 linking distance of each other form one cluster (a focus).
 
-A focus is kept only if it contains at least ``min_cells`` inflammatory nuclei
-(NASH-CRN defines a lobular inflammation focus as >= 2 inflammatory cells; the
-default is configurable).
+A focus is kept only if it contains at least ``min_cells`` inflammatory nuclei.
+This dataset is mouse liver, so the default follows the rodent NAFLD standard
+(Liang et al. 2014): a focus is a cluster of **>= 5** inflammatory cells. (The
+human NASH-CRN definition is >= 2; the value is configurable.)
 
 Typical usage::
 

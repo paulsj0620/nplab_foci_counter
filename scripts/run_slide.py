@@ -149,6 +149,11 @@ def _excel(out_path, stem, fa, rois, foci_per_roi, roi_tissue_mm2, fd_mm2,
         ("foci_in_ROIs", total_roi_foci),
         ("FD_per_mm2", round(fd_mm2, 3)),
         ("FD_per_um2", fd_mm2 / 1e6),
+        # Rodent (Liang) scoring: foci per 3.1 mm2 field, mapped to grade 0-3.
+        ("foci_per_field_3.1mm2", round(scoring.foci_per_field(fd_mm2), 3)),
+        ("Liang_grade", scoring.grade(scoring.foci_per_field(fd_mm2))),
+        ("Liang_grade_label",
+         scoring.grade_label(scoring.grade(scoring.foci_per_field(fd_mm2)))),
     ]:
         ws.append(row)
 
@@ -222,6 +227,10 @@ def run(npz_path: str, czi_path: str) -> dict:
         "foci_in_ROIs": int(sum(foci_per_roi)),
         "FD_per_mm2": round(fd_mm2, 3),
         "FD_per_um2": fd_mm2 / 1e6,
+        "foci_per_field_3.1mm2": round(scoring.foci_per_field(fd_mm2), 3),
+        "Liang_grade": scoring.grade(scoring.foci_per_field(fd_mm2)),
+        "Liang_grade_label":
+            scoring.grade_label(scoring.grade(scoring.foci_per_field(fd_mm2))),
         "out": str(out),
     }
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+from skimage.morphology import remove_small_holes
 
 
 @dataclass
@@ -55,15 +56,33 @@ def select_rois(
     step = max(1, int(roi_um / px_level))          # ROI side in mask pixels
     H, W = mask.shape
 
-    # Candidate non-overlapping grid cells that are mostly tissue.
-    cands = []  # (tissue_px_in_cell, cy, cx, gy, gx)
-    for gy in range(0, H - step + 1, step):
-        for gx in range(0, W - step + 1, step):
-            sub = mask[gy:gy + step, gx:gx + step]
-            frac = float(sub.mean())
-            if frac >= min_tissue_frac:
-                cands.append((int(sub.sum()), gy + step // 2, gx + step // 2,
-                              gy, gx, frac))
+    # Placement mask: fill small interior gaps (sinusoids/texture) so the
+    # tissue-fraction test measures "inside the tissue region", not local
+    # density. Genuine tears (large holes) and the slide edge stay non-tissue,
+    # so a high threshold still excludes edge/torn ROIs. (`tissue_mask` uses
+    # min_hole_um2=0 to keep tears out of the AREA denominator; here we only
+    # fill sub-sinusoid gaps for *placement*.)
+    fill_px = int(2500.0 / (px_level ** 2))        # fill holes up to ~2500 µm²
+    place = remove_small_holes(mask, max_size=fill_px) if fill_px > 0 else mask
+
+    def candidates(thresh):
+        out = []  # (tissue_px, cy, cx, gy, gx, frac)
+        for gy in range(0, H - step + 1, step):
+            for gx in range(0, W - step + 1, step):
+                sub = place[gy:gy + step, gx:gx + step]
+                frac = float(sub.mean())
+                if frac >= thresh:
+                    out.append((int(mask[gy:gy + step, gx:gx + step].sum()),
+                                gy + step // 2, gx + step // 2, gy, gx, frac))
+        return out
+
+    # Try the requested strictness, then relax step-wise until we have at least
+    # min_rois candidates (some pieces are too textured/small for 0.98).
+    cands = candidates(min_tissue_frac)
+    thresh = min_tissue_frac
+    while len(cands) < min_rois and thresh > 0.6:
+        thresh = round(thresh - 0.05, 2)
+        cands = candidates(thresh)
     if not cands:
         return []
 
