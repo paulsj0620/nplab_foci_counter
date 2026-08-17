@@ -34,6 +34,36 @@ import scoring
 MASK_DS = 9
 GALLERY_DS = 3          # read ROI crops at this level (detail vs size)
 GRID_COLS = 5
+EXCLUSIONS_CSV = "config/roi_exclusions.csv"   # slide,roi rows to drop by hand
+
+
+def _load_exclusions(stem: str) -> set[int]:
+    """ROI numbers to exclude for this slide, from config/roi_exclusions.csv.
+
+    The CSV (editable in Excel) has header ``slide,roi``; ``slide`` matches the
+    slide stem (extension optional). Missing file => no exclusions. Because ROI
+    selection is deterministic, ROI numbers are stable across re-runs, so an
+    excluded number always refers to the same ROI.
+    """
+    import csv
+    from pathlib import Path
+
+    path = Path(EXCLUSIONS_CSV)
+    if not path.exists():
+        return set()
+    out: set[int] = set()
+    with open(path, newline="") as fh:
+        for row in csv.DictReader(fh):
+            slide = (row.get("slide") or "").strip()
+            roi = (row.get("roi") or "").strip()
+            if not slide or not roi:
+                continue
+            if slide == stem or Path(slide).stem == stem:
+                try:
+                    out.add(int(roi))
+                except ValueError:
+                    pass
+    return out
 
 
 def _label(canvas, text, x, y, color=(255, 255, 0)):
@@ -62,7 +92,7 @@ def _foci_in_roi(fa, roi):
     return np.nonzero(inside)[0]
 
 
-def _overview(rgb, fa, rois, out_path):
+def _overview(rgb, fa, rois, ranks, out_path):
     ov = rgb.copy()
     h, w = ov.shape[:2]
     for (cx, cy), sz in zip(fa.centers_xy, fa.sizes):
@@ -70,7 +100,7 @@ def _overview(rgb, fa, rois, out_path):
         for off in (0, 1):
             yy, xx = circle_perimeter(yc, xc, 5 + int(np.sqrt(sz)) + off, shape=(h, w))
             ov[yy, xx] = [255, 0, 0]
-    for rank, roi in enumerate(rois, start=1):
+    for rank, roi in zip(ranks, rois):
         y0, x0 = roi.y // MASK_DS, roi.x // MASK_DS
         y1, x1 = min(h - 1, (roi.y + roi.h) // MASK_DS), min(w - 1, (roi.x + roi.w) // MASK_DS)
         for off in (0, 1, 2):
@@ -81,11 +111,11 @@ def _overview(rgb, fa, rois, out_path):
     imsave(out_path, ov)
 
 
-def _gallery_cells(slide, fa, rois, px):
+def _gallery_cells(slide, fa, rois, ranks, px):
     """One crop per ROI (read at GALLERY_DS) with inflammatory nuclei outlined."""
     margin_um = 15.0                       # padding around the cluster
     cells = []
-    for rank, roi in enumerate(rois, start=1):
+    for rank, roi in zip(ranks, rois):
         crop = slide.read_region(roi.x, roi.y, roi.w, roi.h, downsample=GALLERY_DS)
         ch, cw = crop.shape[:2]
         n_foci = 0
@@ -127,7 +157,7 @@ def _save_grid(cells, out_path):
     imsave(out_path, canvas)
 
 
-def _excel(out_path, stem, fa, rois, foci_per_roi, roi_tissue_mm2, fd_mm2,
+def _excel(out_path, stem, fa, rois, ranks, foci_per_roi, roi_tissue_mm2, fd_mm2,
            tissue_mm2, coverage_pct, n_nuclei, px_level, n_pieces,
            inflammation_pct):
     from openpyxl import Workbook
@@ -163,7 +193,7 @@ def _excel(out_path, stem, fa, rois, foci_per_roi, roi_tissue_mm2, fd_mm2,
     wr = wb.create_sheet("ROIs")
     wr.append(["ROI", "x_fullres", "y_fullres", "side_um",
                "tissue_frac", "n_foci"])
-    for rank, (roi, nf) in enumerate(zip(rois, foci_per_roi), start=1):
+    for rank, roi, nf in zip(ranks, rois, foci_per_roi):
         wr.append([rank, roi.x, roi.y, round(roi.w * px_level / MASK_DS, 0),
                    round(roi.tissue_frac, 3), int(nf)])
     wb.save(out_path)
@@ -194,7 +224,17 @@ def run(npz_path: str, czi_path: str) -> dict:
         fa = analyze_nuclei(pts[keep], areas[keep], px, mask, MASK_DS, rgb=rgb)
         tissue_mm2 = tissue_area_mm2(mask, px_level)
 
-        rois = select_rois(mask, MASK_DS, px, rgb=rgb)
+        # Deterministic ROI selection, then drop any hand-excluded numbers
+        # (config/roi_exclusions.csv). Numbers are stable across re-runs, so an
+        # excluded ROI keeps its original number on the survivors.
+        all_rois = select_rois(mask, MASK_DS, px, rgb=rgb)
+        excluded = _load_exclusions(stem)
+        rois, ranks = [], []
+        for i, r in enumerate(all_rois, start=1):
+            if i not in excluded:
+                rois.append(r)
+                ranks.append(i)
+
         foci_per_roi = [len(_foci_in_roi(fa, r)) for r in rois]
         # ROI tissue area (mm²) from the mask under each ROI.
         roi_tissue_px = 0
@@ -212,12 +252,12 @@ def run(npz_path: str, czi_path: str) -> dict:
         infl_area_mm2 = inflammation_area_mm2(infl_members, mask.shape, MASK_DS, px)
         inflammation_pct = 100 * infl_area_mm2 / tissue_mm2 if tissue_mm2 else 0.0
 
-        _overview(rgb, fa, rois, out / f"{stem}_overview.png")
-        cells = _gallery_cells(slide, fa, rois, px)
+        _overview(rgb, fa, rois, ranks, out / f"{stem}_overview.png")
+        cells = _gallery_cells(slide, fa, rois, ranks, px)
 
     if cells:
         _save_grid(cells, out / f"{stem}_gallery.png")
-    _excel(out / f"{stem}_results.xlsx", stem, fa, rois, foci_per_roi,
+    _excel(out / f"{stem}_results.xlsx", stem, fa, rois, ranks, foci_per_roi,
            roi_tissue_mm2, fd_mm2, tissue_mm2, coverage_pct,
            int(keep.sum()), px_level, n_pieces, inflammation_pct)
 

@@ -37,7 +37,7 @@ def select_rois(
     min_rois: int = 5,
     max_rois: int = 20,
     min_tissue_frac: float = 0.98,
-    lumen_max_pct: float = 1.5,
+    lumen_max_pct: float = 1.0,
     dark_blob_max_um2: float = 1500.0,
 ) -> list[ROI]:
     """Pick non-overlapping square ROIs covering ~target_coverage of tissue.
@@ -81,8 +81,10 @@ def select_rois(
         if gray is None:
             return True
         sub_m = mask[gy:gy + step, gx:gx + step]
-        holes = ndi.binary_fill_holes(sub_m) & ~sub_m
-        lbl, k = ndi.label(holes)
+        # Largest connected background blob (edge-touching included), so a big
+        # vessel/portal lumen at the cell border is caught too, not only fully
+        # enclosed lumens.
+        lbl, k = ndi.label(~sub_m)
         if k and ndi.sum(np.ones_like(lbl), lbl, range(1, k + 1)).max() \
                 / sub_m.size * 100 > lumen_max_pct:
             return False                            # big vessel / portal lumen
