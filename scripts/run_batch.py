@@ -94,8 +94,8 @@ def _write_summary(rows: list[dict], out_path: str = "results/summary_all.xlsx")
     cols = ["slide", "status", "seconds", "n_tissue_pieces", "n_nuclei",
             "n_inflammatory", "n_foci_wholeslide", "tissue_mm2", "n_ROIs",
             "ROI_coverage_pct", "ROI_tissue_mm2", "foci_in_ROIs",
-            "FD_per_mm2", "FD_per_um2", "foci_per_field_3.1mm2",
-            "Liang_grade", "Liang_grade_label"]
+            "FD_per_mm2", "FD_per_um2", "inflammation_area_pct",
+            "foci_per_field_3.1mm2", "Liang_grade", "Liang_grade_label"]
     wb = Workbook()
     ws = wb.active
     ws.title = "all_slides"

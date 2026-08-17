@@ -146,6 +146,34 @@ def lumen_distance_um(
     return out
 
 
+def inflammation_area_mm2(
+    infl_points_xy: np.ndarray,
+    mask_shape: tuple[int, int],
+    mask_downsample: int,
+    pixel_size_um: float,
+    disc_um: float = 15.0,
+) -> float:
+    """Area (mm²) covered by inflammation, AIH-style.
+
+    Each inflammatory nucleus is stamped onto a level-resolution canvas and
+    dilated by a disc, and the union area is measured -- the "Inflammation
+    Density (ID)" numerator. Pass the nuclei belonging to the kept foci.
+    """
+    from skimage.morphology import dilation, disk
+
+    h, w = mask_shape
+    if infl_points_xy.shape[0] == 0:
+        return 0.0
+    px_level = pixel_size_um * mask_downsample
+    canvas = np.zeros((h, w), dtype=bool)
+    my = np.clip((infl_points_xy[:, 1] / mask_downsample).astype(int), 0, h - 1)
+    mx = np.clip((infl_points_xy[:, 0] / mask_downsample).astype(int), 0, w - 1)
+    canvas[my, mx] = True
+    # disk is symmetric, so dilation needs no footprint mirroring.
+    canvas = dilation(canvas, disk(max(1, int(disc_um / px_level))))
+    return float(canvas.sum()) * (px_level / 1000.0) ** 2
+
+
 def analyze(
     points_xy: np.ndarray,
     areas_um2: np.ndarray,

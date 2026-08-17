@@ -26,7 +26,7 @@ from skimage.draw import circle_perimeter, rectangle_perimeter
 
 from czi_loader import CziSlide
 from tissue_mask import tissue_mask, tissue_area_mm2
-from foci_pipeline import analyze as analyze_nuclei
+from foci_pipeline import analyze as analyze_nuclei, inflammation_area_mm2
 from roi_select import select_rois
 from tissue_pieces import find_pieces, best_piece
 import scoring
@@ -128,7 +128,8 @@ def _save_grid(cells, out_path):
 
 
 def _excel(out_path, stem, fa, rois, foci_per_roi, roi_tissue_mm2, fd_mm2,
-           tissue_mm2, coverage_pct, n_nuclei, px_level, n_pieces):
+           tissue_mm2, coverage_pct, n_nuclei, px_level, n_pieces,
+           inflammation_pct):
     from openpyxl import Workbook
 
     wb = Workbook()
@@ -149,6 +150,8 @@ def _excel(out_path, stem, fa, rois, foci_per_roi, roi_tissue_mm2, fd_mm2,
         ("foci_in_ROIs", total_roi_foci),
         ("FD_per_mm2", round(fd_mm2, 3)),
         ("FD_per_um2", fd_mm2 / 1e6),
+        # Complementary Forlano/AIH metric: inflammation area as % of tissue.
+        ("inflammation_area_pct", round(inflammation_pct, 3)),
         # Rodent (Liang) scoring: foci per 3.1 mm2 field, mapped to grade 0-3.
         ("foci_per_field_3.1mm2", round(scoring.foci_per_field(fd_mm2), 3)),
         ("Liang_grade", scoring.grade(scoring.foci_per_field(fd_mm2))),
@@ -202,6 +205,13 @@ def run(npz_path: str, czi_path: str) -> dict:
         coverage_pct = 100 * roi_tissue_mm2 / tissue_mm2 if tissue_mm2 else 0.0
         fd_mm2 = sum(foci_per_roi) / roi_tissue_mm2 if roi_tissue_mm2 else 0.0
 
+        # Inflammation Density (ID): area covered by kept-foci inflammatory cells
+        # over the analyzed piece's tissue area (Forlano/AIH complementary metric).
+        infl_members = (fa.infl_xy[np.isin(fa.labels, fa.kept_ids)]
+                        if fa.n_foci else np.empty((0, 2)))
+        infl_area_mm2 = inflammation_area_mm2(infl_members, mask.shape, MASK_DS, px)
+        inflammation_pct = 100 * infl_area_mm2 / tissue_mm2 if tissue_mm2 else 0.0
+
         _overview(rgb, fa, rois, out / f"{stem}_overview.png")
         cells = _gallery_cells(slide, fa, rois, px)
 
@@ -209,7 +219,7 @@ def run(npz_path: str, czi_path: str) -> dict:
         _save_grid(cells, out / f"{stem}_gallery.png")
     _excel(out / f"{stem}_results.xlsx", stem, fa, rois, foci_per_roi,
            roi_tissue_mm2, fd_mm2, tissue_mm2, coverage_pct,
-           int(keep.sum()), px_level, n_pieces)
+           int(keep.sum()), px_level, n_pieces, inflammation_pct)
 
     piece_note = f"1 of {n_pieces} pieces" if n_pieces > 1 else "single piece"
     print(f"{stem}: {piece_note}, {len(rois)} ROIs ({coverage_pct:.0f}% cover), "
@@ -227,6 +237,7 @@ def run(npz_path: str, czi_path: str) -> dict:
         "foci_in_ROIs": int(sum(foci_per_roi)),
         "FD_per_mm2": round(fd_mm2, 3),
         "FD_per_um2": fd_mm2 / 1e6,
+        "inflammation_area_pct": round(inflammation_pct, 3),
         "foci_per_field_3.1mm2": round(scoring.foci_per_field(fd_mm2), 3),
         "Liang_grade": scoring.grade(scoring.foci_per_field(fd_mm2)),
         "Liang_grade_label":
