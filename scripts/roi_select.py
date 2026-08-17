@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+from scipy import ndimage as ndi
 from skimage.morphology import remove_small_holes
 
 
@@ -30,11 +31,14 @@ def select_rois(
     mask: np.ndarray,
     mask_downsample: int,
     pixel_size_um: float,
+    rgb: np.ndarray | None = None,
     target_coverage: float = 0.25,
     n_target: int = 11,
     min_rois: int = 5,
     max_rois: int = 20,
     min_tissue_frac: float = 0.98,
+    lumen_max_pct: float = 1.5,
+    dark_blob_max_um2: float = 1500.0,
 ) -> list[ROI]:
     """Pick non-overlapping square ROIs covering ~target_coverage of tissue.
 
@@ -42,10 +46,16 @@ def select_rois(
     ----------
     mask : (H, W) bool tissue mask at ``mask_downsample``.
     pixel_size_um : full-res µm/px.
+    rgb : (H, W, 3) image at the same level; enables vessel/fold rejection.
     target_coverage : desired fraction of tissue area covered by the ROIs.
     n_target : rough number of ROIs used to size each square.
     min_rois, max_rois : clamp on the ROI count.
     min_tissue_frac : a grid cell must be at least this much tissue to qualify.
+    lumen_max_pct : reject a cell whose largest enclosed lumen exceeds this
+        percent of the cell (big vessel / portal tract). Needs ``rgb`` is not
+        required (uses the mask), but the check only runs when rgb is given.
+    dark_blob_max_um2 : reject a cell with a connected very-dark blob larger
+        than this (tissue fold / dark artifact). Needs ``rgb``.
     """
     px_level = pixel_size_um * mask_downsample
     tissue_px = int(mask.sum())
@@ -64,6 +74,23 @@ def select_rois(
     # fill sub-sinusoid gaps for *placement*.)
     fill_px = int(2500.0 / (px_level ** 2))        # fill holes up to ~2500 µm²
     place = remove_small_holes(mask, max_size=fill_px) if fill_px > 0 else mask
+    gray = rgb.mean(axis=2) if rgb is not None else None
+
+    def _is_clean(gy, gx):
+        """Reject a cell holding a big vessel lumen or a fold (needs rgb)."""
+        if gray is None:
+            return True
+        sub_m = mask[gy:gy + step, gx:gx + step]
+        holes = ndi.binary_fill_holes(sub_m) & ~sub_m
+        lbl, k = ndi.label(holes)
+        if k and ndi.sum(np.ones_like(lbl), lbl, range(1, k + 1)).max() \
+                / sub_m.size * 100 > lumen_max_pct:
+            return False                            # big vessel / portal lumen
+        dl, dk = ndi.label(gray[gy:gy + step, gx:gx + step] < 80)
+        if dk and ndi.sum(np.ones_like(dl), dl, range(1, dk + 1)).max() \
+                * (px_level ** 2) > dark_blob_max_um2:
+            return False                            # tissue fold / dark blob
+        return True
 
     def candidates(thresh):
         out = []  # (tissue_px, cy, cx, gy, gx, frac)
@@ -71,7 +98,7 @@ def select_rois(
             for gx in range(0, W - step + 1, step):
                 sub = place[gy:gy + step, gx:gx + step]
                 frac = float(sub.mean())
-                if frac >= thresh:
+                if frac >= thresh and _is_clean(gy, gx):
                     out.append((int(mask[gy:gy + step, gx:gx + step].sum()),
                                 gy + step // 2, gx + step // 2, gy, gx, frac))
         return out

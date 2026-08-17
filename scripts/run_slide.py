@@ -194,7 +194,7 @@ def run(npz_path: str, czi_path: str) -> dict:
         fa = analyze_nuclei(pts[keep], areas[keep], px, mask, MASK_DS, rgb=rgb)
         tissue_mm2 = tissue_area_mm2(mask, px_level)
 
-        rois = select_rois(mask, MASK_DS, px)
+        rois = select_rois(mask, MASK_DS, px, rgb=rgb)
         foci_per_roi = [len(_foci_in_roi(fa, r)) for r in rois]
         # ROI tissue area (mm²) from the mask under each ROI.
         roi_tissue_px = 0
